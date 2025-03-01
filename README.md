@@ -1,0 +1,1 @@
+## Crypto Instrument Name Normalizer
