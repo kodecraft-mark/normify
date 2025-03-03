@@ -47,6 +47,17 @@ impl ToString for MarketType {
     }
 }
 
+impl From<&str> for MarketType {
+    fn from(s: &str) -> Self {
+        match s {
+            "o" | "orderbook" => MarketType::OrderBook,
+            "pt" | "public_trade" | "publictrade" => MarketType::PublicTrades,
+            "t" | "ticker" => MarketType::Ticker,
+            _ => panic!("Invalid market type")
+        }
+    }
+}
+
 #[derive(Debug,PartialEq)]
 pub enum InstrumentType {
     /// Futures contract: BASE-QUOTE-EXPIRY (e.g., BTC-USD-20250528)
