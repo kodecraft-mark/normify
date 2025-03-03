@@ -1,6 +1,6 @@
 use tracing::error;
 
-use crate::{denormalize_expiry, normalize_expiry, parse_expiry_date, Exchange, ExchangeHandler, Instrument, InstrumentType, MarketType, OptionKind};
+use crate::{denormalize_expiry, normalize_expiry, parse_expiry_date, Exchange, ExchangeHandler, Instrument, InstrumentType, MarketType};
 
 const DEFAULT_QUOTE_CURRENCY: &str = "USD";
 const DEFAULT_EXPIRY_FORMAT: &str = "%d%b%y";
@@ -36,7 +36,7 @@ impl ExchangeHandler for DeribitHandler {
             [base, expiry, strike_str, kind_str] => {
                 let _ = parse_expiry_date(expiry, DEFAULT_EXPIRY_FORMAT)?;
                 let strike = strike_str.parse::<u64>().ok()?;
-                let kind = OptionKind::from_str(kind_str)?;
+                let kind = (*kind_str).try_into().ok()?;
                 let normalized_expiry  = normalize_expiry(expiry)?;
                 Some(Instrument::new(
                     exchange,

@@ -1,10 +1,10 @@
 use tracing::error;
 
-use crate::{denormalize_expiry, normalize_expiry, parse_expiry_date, Exchange, ExchangeHandler, Instrument, InstrumentType, MarketType, OptionKind};
+use crate::{denormalize_expiry, normalize_expiry, parse_expiry_date, Exchange, ExchangeHandler, Instrument, InstrumentType, MarketType};
 
 const DEFAULT_QUOTE_CURRENCY: &str = "USD";
 const DEFAULT_EXPIRY_FORMAT: &str = "%Y%m%d";
-pub struct DeriveHandler(Exchange);
+pub struct DeriveHandler(pub Exchange);
 
 impl ExchangeHandler for DeriveHandler {
 
@@ -29,7 +29,7 @@ impl ExchangeHandler for DeriveHandler {
             [base, expiry, strike_str, kind_str] => {
                 let _ = parse_expiry_date(expiry, DEFAULT_EXPIRY_FORMAT)?;
                 let strike = strike_str.parse::<u64>().ok()?;
-                let kind = OptionKind::from_str(kind_str)?;
+                let kind = (*kind_str).try_into().ok()?;
                 let normalized_expiry  = normalize_expiry(expiry)?;
                 Some(Instrument::new(
                     exchange,
@@ -51,7 +51,7 @@ impl ExchangeHandler for DeriveHandler {
             return None;
         }
 
-        if !Self::instrument_type_validator(&instrument.instrument_type) {
+        if !self.instrument_type_validator(&instrument.instrument_type) {
             error!("denormalize::Instrument Type for {:?} is unsupported: {:?}", self.0, instrument.instrument_type);
             return None;
         }
@@ -65,7 +65,7 @@ impl ExchangeHandler for DeriveHandler {
         }
     }
 
-    fn instrument_type_validator(instrument_type: &InstrumentType) -> bool {
+    fn instrument_type_validator(&self, instrument_type: &InstrumentType) -> bool {
         match instrument_type {
             InstrumentType::Option(_, _, _, _, _) => true,
             InstrumentType::Perpetual(_, _) => true,

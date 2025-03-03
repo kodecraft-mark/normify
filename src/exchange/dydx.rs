@@ -2,7 +2,7 @@ use tracing::error;
 
 use crate::{Exchange, ExchangeHandler, Instrument, InstrumentType, MarketType};
 
-pub struct DydxHandler(Exchange);
+pub struct DydxHandler(pub Exchange);
 
 impl ExchangeHandler for DydxHandler {
 
@@ -13,7 +13,7 @@ impl ExchangeHandler for DydxHandler {
             return None;
         }
 
-        if !Self::market_type_validator(&market_type) {
+        if !self.market_type_validator(&market_type) {
             error!("denormalize::Market Type for {:?} is unsupported: {:?}", self.0, market_type);
             return None;
         }
@@ -38,8 +38,13 @@ impl ExchangeHandler for DydxHandler {
             error!("denormalize::Expected {:?} got {:?}", Exchange::Dydx, self.0);
             return None;
         }
-        if !Self::instrument_type_validator(&instrument.instrument_type) {
+        if !self.instrument_type_validator(&instrument.instrument_type) {
             error!("denormalize::Instrument Type for {:?} is unsupported: {:?}", self.0, instrument.instrument_type);
+            return None;
+        }
+
+        if !self.market_type_validator(&instrument.market_type) {
+            error!("denormalize::Market Type for {:?} is unsupported: {:?}", self.0, instrument.market_type);
             return None;
         }
         match instrument.instrument_type {
@@ -48,14 +53,14 @@ impl ExchangeHandler for DydxHandler {
         }
     }
 
-    fn market_type_validator(market_type: &MarketType) -> bool {
+    fn market_type_validator(&self, market_type: &MarketType) -> bool {
         match market_type {
             MarketType::OrderBook  => true,
             _ => false
         }
     }
 
-    fn instrument_type_validator(instrument_type: &InstrumentType) -> bool {
+    fn instrument_type_validator(&self, instrument_type: &InstrumentType) -> bool {
         match instrument_type {
             InstrumentType::Perpetual(_, _) => true,
             _ => false
