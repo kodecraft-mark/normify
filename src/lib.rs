@@ -239,9 +239,9 @@ impl TryFrom<&str> for OptionKind {
 /// Represents a trading instrument with details about its market and type
 #[derive(Debug, PartialEq, Clone)]
 pub struct Instrument {
-    exchange: Exchange,
-    market_type: MarketType,
-    instrument_type: InstrumentType
+    pub exchange: Exchange,
+    pub market_type: MarketType,
+    pub instrument_type: InstrumentType
 }
 impl Instrument {
     /// Creates a new `Instrument`
