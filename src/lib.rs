@@ -106,9 +106,9 @@ impl TryFrom<&str> for MarketType {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "o" => Ok(MarketType::OrderBook),
-            "pt" => Ok(MarketType::PublicTrades),
-            "t" => Ok(MarketType::Ticker),
+            "o" | "orderbook" => Ok(MarketType::OrderBook),
+            "pt" | "publictrade" | "trade" => Ok(MarketType::PublicTrades),
+            "t" | "ticker" => Ok(MarketType::Ticker),
             _ => Err("Invalid market type"),
         }
     }
@@ -227,9 +227,9 @@ impl ToString for OptionKind {
 impl TryFrom<&str> for OptionKind {
     type Error = String;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value.to_uppercase().as_str() {
-            "C" => Ok(OptionKind::Call),
-            "P" => Ok(OptionKind::Put),
+        match value.to_lowercase().as_str() {
+            "c" | "call" => Ok(OptionKind::Call),
+            "p" | "put" => Ok(OptionKind::Put),
             _ => Err(format!("Invalid option kind: {}", value)),
         }
     }
