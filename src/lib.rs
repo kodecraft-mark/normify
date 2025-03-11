@@ -72,7 +72,7 @@ impl TryFrom<&str> for Exchange {
 }
 impl Exchange {
 
-    fn wrap(&self) -> Box<dyn ExchangeHandler> {
+    pub fn wrap(&self) -> Box<dyn ExchangeHandler> {
         match self {
             Exchange::Deribit => Box::new(exchange::deribit::DeribitHandler(self.clone())),
             Exchange::Dydx => Box::new(exchange::dydx::DydxHandler(self.clone())),
