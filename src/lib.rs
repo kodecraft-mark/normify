@@ -36,6 +36,31 @@ pub fn transform_from_standard_str_format(instrument_name: &str) -> Option<Instr
     }
 }
 
+/// Standard instrument format o.p.<instrument-name>.exchange , eg. o.p.BTC-USD.deribit.
+/// Transform a standard string format to an exchange specific instrument name
+/// This will only  work for instrument that are supported by particular exchange 
+pub fn denormalize_from_str(instrument_name: &str) -> Option<String> {
+    let parts: Vec<&str> = instrument_name.split('.').collect();
+    match parts.as_slice() {
+        [market_type, instrument_kind, instrument_name, exchange] => {
+            if let (Ok(mt), Ok(exc)) = ((*market_type).try_into(), (*exchange).try_into()) {
+                let instrument = Instrument {
+                    exchange: exc,
+                    market_type: mt,
+                    instrument_type: InstrumentType::from(instrument_kind, instrument_name)?
+                };
+                return exc.wrap().denormalize(instrument.clone())
+            }
+            error!("denormalize_from_str::Exchange and MarketType are not supported: {}:{}", exchange, market_type);
+            None
+        },
+        _ => {
+            error!("denormalize_from_str::Unexpected instrument format: {:?}", instrument_name);
+            return None;
+        }
+    }
+}
+
 /// Represents different exchanges
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Exchange {
