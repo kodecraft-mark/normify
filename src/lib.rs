@@ -62,7 +62,7 @@ pub fn denormalize_from_str(instrument_name: &str) -> Option<String> {
 }
 
 /// Represents different exchanges
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Exchange {
     Deribit,
     Dydx,
@@ -108,7 +108,7 @@ impl Exchange {
 }
 
 /// Represents different market types
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub enum MarketType {
     OrderBook,
     PublicTrades,
@@ -139,7 +139,7 @@ impl TryFrom<&str> for MarketType {
     }
 }
 
-#[derive(Debug,PartialEq, Clone)]
+#[derive(Debug,PartialEq, Clone, Eq)]
 pub enum InstrumentType {
     /// Futures contract: BASE-QUOTE-EXPIRY (e.g., BTC-USD-20250528)
     /// Expiry format in [`STANDARD_DATE_FORMAT`]
@@ -235,7 +235,7 @@ impl InstrumentType {
 
 
 /// Represents an option kind (Call or Put)
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub enum OptionKind {
     Call,
     Put
@@ -264,7 +264,7 @@ impl TryFrom<&str> for OptionKind {
 
 
 /// Represents a trading instrument with details about its market and type
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub struct Instrument {
     pub exchange: Exchange,
     pub market_type: MarketType,
