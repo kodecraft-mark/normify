@@ -48,7 +48,7 @@ impl ExchangeHandler for DydxHandler {
             return None;
         }
         match instrument.instrument_type {
-            InstrumentType::Perpetual(base, quote) => Some(format!("{}-{}", base, quote)),
+            InstrumentType::Perpetual(base, quote) => Some(format!("{}-{}", base.to_uppercase(), quote.to_uppercase())),
             _ => None
         }
     }

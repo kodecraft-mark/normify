@@ -47,7 +47,7 @@ impl ExchangeHandler for ParadexHandler {
             return None;
         }
         match instrument.instrument_type {
-            InstrumentType::Perpetual(base, quote) => Some(format!("{}-{}-PERP", base, quote)),
+            InstrumentType::Perpetual(base, quote) => Some(format!("{}-{}-PERP", base.to_uppercase(), quote.to_uppercase())),
             _ => None
         }
     }

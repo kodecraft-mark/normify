@@ -130,7 +130,7 @@ impl TryFrom<&str> for MarketType {
     type Error = &'static str;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
+        match value.trim().to_lowercase().as_str() {
             "o" | "orderbook" => Ok(MarketType::OrderBook),
             "pt" | "publictrade" | "trade" => Ok(MarketType::PublicTrades),
             "t" | "ticker" => Ok(MarketType::Ticker),
@@ -178,9 +178,11 @@ impl InstrumentType {
     /// Returns an `Some(InstrumentType)` if the string is valid for the given kind, otherwise returns `None`.
     /// 
     pub fn from(kind: &str, instrument_name: &str) -> Option<Self> {
-        match kind {
+        let instrument_name = instrument_name.trim().to_lowercase();
+        let parts: Vec<&str> = instrument_name.as_str().split('-').collect();
+        match kind.trim().to_lowercase().as_str() {
             "o" | "option" => {
-                let parts: Vec<&str> = instrument_name.split('-').collect();
+                // let parts: Vec<&str> = instrument_name.trim().to_lowercase().split('-').collect();
                 if let [base, quote, expiry, strike, kind] = parts.as_slice() {
                     let option_kind = (*kind).try_into().ok()?;
                     let strike = strike.parse::<u64>().ok()?;
@@ -196,7 +198,7 @@ impl InstrumentType {
                 }
             }
             "f" | "future" => {
-                let parts: Vec<&str> = instrument_name.split('-').collect();
+                // let parts: Vec<&str> = instrument_name.split('-').collect();
                 if let [base, quote, expiry] = parts.as_slice() {
                     Some(InstrumentType::Future(
                         base.to_string(),
@@ -208,7 +210,7 @@ impl InstrumentType {
                 }
             }
             "p" | "perpetual" => {
-                let parts: Vec<&str> = instrument_name.split('-').collect();
+                // let parts: Vec<&str> = instrument_name.split('-').collect();
                 if let [base, quote] = parts.as_slice() {
                     Some(InstrumentType::Perpetual(
                         base.to_string(),
@@ -219,7 +221,7 @@ impl InstrumentType {
                 }
             }
             "s" | "spot" => {
-                let parts: Vec<&str> = instrument_name.split('-').collect();
+                // let parts: Vec<&str> = instrument_name.split('-').collect();
                 if let [base, quote] = parts.as_slice() {
                     Some(InstrumentType::Spot(base.to_string(), quote.to_string()))
                 } else {
@@ -281,7 +283,7 @@ impl Instrument {
 impl ToString for Instrument {
     //// Converts an `Instrument` to its standard string representation
     fn to_string(&self) -> String {
-        format!("{}.{}.{}", self.market_type.to_string(), self.instrument_type.to_string(), self.exchange.to_string())
+        format!("{}.{}.{}", self.market_type.to_string(), self.instrument_type.to_string(), self.exchange.to_string()).to_lowercase()
     }
 }
 

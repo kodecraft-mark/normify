@@ -2,7 +2,7 @@ use tracing::error;
 
 use crate::{denormalize_expiry, normalize_expiry, parse_expiry_date, Exchange, ExchangeHandler, Instrument, InstrumentType, MarketType};
 
-const DEFAULT_QUOTE_CURRENCY: &str = "USD";
+const DEFAULT_QUOTE_CURRENCY: &str = "usd";
 const DEFAULT_EXPIRY_FORMAT: &str = "%d%b%y";
 pub struct DeribitHandler(pub Exchange);
 
@@ -17,6 +17,7 @@ impl ExchangeHandler for DeribitHandler {
     
         // Split the instrument name into parts
         let exchange = self.0;
+        let instrument_name = instrument_name.to_lowercase();
         let parts: Vec<&str> = instrument_name.split('-').collect();
     
         match parts.as_slice() {
@@ -67,18 +68,18 @@ impl ExchangeHandler for DeribitHandler {
         match instrument.instrument_type {
             InstrumentType::Future(base, _quote, expiry) => {
                 let denormalize_expiry = denormalize_expiry(&expiry, DEFAULT_EXPIRY_FORMAT);
-                Some(format!("{}-{}", base, denormalize_expiry))
+                Some(format!("{}-{}", base.to_uppercase(), denormalize_expiry))
             }
             InstrumentType::Option(base, _quote, expiry, strike, kind) => {
                 let denormalize_expiry = denormalize_expiry(&expiry, DEFAULT_EXPIRY_FORMAT);
-                Some(format!("{}-{}-{}-{}", base, denormalize_expiry, strike, kind.to_string()))
+                Some(format!("{}-{}-{}-{}", base.to_uppercase(), denormalize_expiry, strike, kind.to_string()))
             }
             InstrumentType::Spot(base, quote) => Some(format!("{}_{}", base, quote)),
             InstrumentType::Perpetual(base, quote) => {
                 if quote == DEFAULT_QUOTE_CURRENCY {
-                    Some(format!("{}-PERPETUAL", base))
+                    Some(format!("{}-PERPETUAL", base.to_uppercase()))
                 }else{
-                    Some(format!("{}_{}-PERPETUAL", base, quote))
+                    Some(format!("{}_{}-PERPETUAL", base.to_uppercase(), quote.to_uppercase()))
                 }
             }
         }

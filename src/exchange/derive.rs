@@ -2,7 +2,7 @@ use tracing::error;
 
 use crate::{denormalize_expiry, normalize_expiry, parse_expiry_date, Exchange, ExchangeHandler, Instrument, InstrumentType, MarketType};
 
-const DEFAULT_QUOTE_CURRENCY: &str = "USD";
+const DEFAULT_QUOTE_CURRENCY: &str = "usd";
 const DEFAULT_EXPIRY_FORMAT: &str = "%Y%m%d";
 pub struct DeriveHandler(pub Exchange);
 
@@ -58,9 +58,9 @@ impl ExchangeHandler for DeriveHandler {
         match instrument.instrument_type {
             InstrumentType::Option(base, _quote, expiry, strike, kind) => {
                 let denormalize_expiry = denormalize_expiry(&expiry, DEFAULT_EXPIRY_FORMAT);
-                Some(format!("{}-{}-{}-{}", base, denormalize_expiry, strike, kind.to_string()))
+                Some(format!("{}-{}-{}-{}", base.to_uppercase(), denormalize_expiry, strike, kind.to_string()))
             },
-            InstrumentType::Perpetual(base, _) => Some(format!("{}-PERP", base)),
+            InstrumentType::Perpetual(base, _) => Some(format!("{}-PERP", base.to_uppercase())),
             _ => None
         }
     }
