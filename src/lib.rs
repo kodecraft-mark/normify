@@ -1,62 +1,85 @@
 use chrono::{DateTime, NaiveDate, NaiveTime, TimeZone, Utc};
 use tracing::error;
+use std::borrow::Cow;
+use std::fmt::{self, Display, Formatter};
+use thiserror::Error;
 
 /// Module containing exchange-related definitions
 pub mod exchange;
 
 /// Standard date format for expiry parsing
 const STANDARD_DATE_FORMAT: &str = "%Y%m%d";
+const LOG_CTX: &str = "normify#lib";
 
-/// Standard instrument format o.p.<instrument-name>.exchange , eg. o.p.BTC-USD.deribit.
-/// Transform a standard string format to an `Instrument` struct.
-/// This will only  work for instrument that are supported by particular exchange 
-pub fn transform_from_standard_str_format(instrument_name: &str) -> Option<Instrument> {
-    let parts: Vec<&str> = instrument_name.split('.').collect();
+/// Error types for instrument operations
+#[derive(Error, Debug)]
+pub enum InstrumentError {
+    #[error("Invalid format: {0}")]
+    InvalidFormat(String),
+    
+    #[error("Unsupported by exchange: {0}")]
+    UnsupportedByExchange(String),
+    
+    #[error("Invalid date format: {0}")]
+    InvalidDate(String),
+    
+    #[error("Parsing error: {0}")]
+    ParseError(String),
+}
+
+/// Result type for instrument operations
+pub type InstrumentResult<T> = Result<T, InstrumentError>;
+
+/// Parse a standard format string into an Instrument
+/// Standard instrument format: <market-type>.<instrument-kind>.<instrument-name>.<exchange>
+/// Example: o.p.BTC-USD.deribit
+pub fn parse_standard_format(instrument_str: &str) -> InstrumentResult<Instrument> {
+    let parts: Vec<&str> = instrument_str.split('.').collect();
+    
     match parts.as_slice() {
         [market_type, instrument_kind, instrument_name, exchange] => {
-            if let (Ok(mt), Ok(exc)) = ((*market_type).try_into(), (*exchange).try_into()) {
-                let instrument = Instrument {
-                    exchange: exc,
-                    market_type: mt,
-                    instrument_type: InstrumentType::from(instrument_kind, instrument_name)?
-                };
-                // Why denormalize?
-                // This is to validate if MarketType and InstrumentType is supported by the exchange.
-                if let Some(_de) = exc.wrap().denormalize(instrument.clone()){
-                    return Some(instrument)
-                }
+            // Parse exchange and market type once
+            let exchange = Exchange::try_from(*exchange)
+                .map_err(|e| InstrumentError::ParseError(e))?;
+            
+            let market_type = MarketType::try_from(*market_type)
+                .map_err(|e| InstrumentError::ParseError(e.to_string()))?;
+            
+            // Parse instrument type
+            let instrument_type = InstrumentType::from_str(instrument_kind, instrument_name)
+                .ok_or_else(|| InstrumentError::InvalidFormat(
+                    format!("Invalid instrument format: {instrument_kind}.{instrument_name}")
+                ))?;
+            
+            let instrument = Instrument {
+                exchange,
+                market_type,
+                instrument_type,
+            };
+            
+            // Validate by attempting to denormalize
+            let handler = exchange.handler();
+            if handler.denormalize(&instrument).is_some() {
+                Ok(instrument)
+            } else {
+                Err(InstrumentError::UnsupportedByExchange(
+                    format!("Instrument not supported by {}", exchange)
+                ))
             }
-            error!("denormalize_from_standard_str_format::Exchange and MarketType are not supported: {}:{}", exchange, market_type);
-            None
         },
-        _ => {
-            error!("denormalize_from_standard_str_format::Unexpected instrument format: {:?}", instrument_name);
-            return None;
-        }
+        _ => Err(InstrumentError::InvalidFormat(
+            format!("Invalid instrument format: {}", instrument_str)
+        )),
     }
 }
 
-/// Standard instrument format o.p.<instrument-name>.exchange , eg. o.p.BTC-USD.deribit.
 /// Transform a standard string format to an exchange specific instrument name
-/// This will only  work for instrument that are supported by particular exchange 
-pub fn denormalize_from_str(instrument_name: &str) -> Option<String> {
-    let parts: Vec<&str> = instrument_name.split('.').collect();
-    match parts.as_slice() {
-        [market_type, instrument_kind, instrument_name, exchange] => {
-            if let (Ok(mt), Ok(exc)) = ((*market_type).try_into(), (*exchange).try_into()) {
-                let instrument = Instrument {
-                    exchange: exc,
-                    market_type: mt,
-                    instrument_type: InstrumentType::from(instrument_kind, instrument_name)?
-                };
-                return exc.wrap().denormalize(instrument.clone())
-            }
-            error!("denormalize_from_str::Exchange and MarketType are not supported: {}:{}", exchange, market_type);
+pub fn to_exchange_format(instrument_str: &str) -> Option<String> {
+    match parse_standard_format(instrument_str) {
+        Ok(instrument) => instrument.exchange.handler().denormalize(&instrument),
+        Err(err) => {
+            error!(name: LOG_CTX, "to_exchange_format error: {}", err);
             None
-        },
-        _ => {
-            error!("denormalize_from_str::Unexpected instrument format: {:?}", instrument_name);
-            return None;
         }
     }
 }
@@ -67,18 +90,17 @@ pub enum Exchange {
     Deribit,
     Dydx,
     Derive,
-    Paradex
+    Paradex,
 }
 
-impl ToString for Exchange {
-    /// Converts an `Exchange` to its string representation
-    fn to_string(&self) -> String {
-        match self {
-            Exchange::Deribit => "deribit".to_string(),
-            Exchange::Dydx => "dydx".to_string(),
-            Exchange::Derive => "derive".to_string(),
-            Exchange::Paradex => "paradex".to_string()
-        }
+impl Display for Exchange {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Exchange::Deribit => "deribit",
+            Exchange::Dydx => "dydx",
+            Exchange::Derive => "derive",
+            Exchange::Paradex => "paradex",
+        })
     }
 }
 
@@ -86,23 +108,26 @@ impl TryFrom<&str> for Exchange {
     type Error = String;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value.trim().to_lowercase().as_str() {
-            "deribit" => Ok(Exchange::Deribit),
-            "dydx" => Ok(Exchange::Dydx),
-            "derive" => Ok(Exchange::Derive),
-            "paradex" => Ok(Exchange::Paradex),
+        // Avoid allocation by using match directly on lowercase comparison
+        match value.trim() {
+            s if s.eq_ignore_ascii_case("deribit") => Ok(Exchange::Deribit),
+            s if s.eq_ignore_ascii_case("dydx") => Ok(Exchange::Dydx),
+            s if s.eq_ignore_ascii_case("derive") => Ok(Exchange::Derive),
+            s if s.eq_ignore_ascii_case("paradex") => Ok(Exchange::Paradex),
             _ => Err(format!("Invalid exchange name: {}", value)),
         }
     }
 }
-impl Exchange {
 
-    pub fn wrap(&self) -> Box<dyn ExchangeHandler> {
+impl Exchange {
+    /// Returns the appropriate exchange handler
+    pub fn handler(&self) -> &'static dyn ExchangeHandler {
+        // Static handlers avoid Box allocation
         match self {
-            Exchange::Deribit => Box::new(exchange::deribit::DeribitHandler(self.clone())),
-            Exchange::Dydx => Box::new(exchange::dydx::DydxHandler(self.clone())),
-            Exchange::Derive => Box::new(exchange::derive::DeriveHandler(self.clone())),
-            Exchange::Paradex => Box::new(exchange::paradex::ParadexHandler(self.clone()))
+            Exchange::Deribit => &exchange::deribit::DERIBIT_HANDLER,
+            Exchange::Dydx => &exchange::dydx::DYDX_HANDLER,
+            Exchange::Derive => &exchange::derive::DERIVE_HANDLER,
+            Exchange::Paradex => &exchange::paradex::PARADEX_HANDLER,
         }
     }
 }
@@ -112,17 +137,16 @@ impl Exchange {
 pub enum MarketType {
     OrderBook,
     PublicTrades,
-    Ticker
+    Ticker,
 }
 
-impl ToString for MarketType {
-    /// Converts a `MarketType` to its string representation
-    fn to_string(&self) -> String {
-        match self {
-            MarketType::OrderBook => "o".to_string(),
-            MarketType::PublicTrades => "pt".to_string(),
-            MarketType::Ticker => "t".to_string(),
-        }
+impl Display for MarketType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            MarketType::OrderBook => "o",
+            MarketType::PublicTrades => "pt",
+            MarketType::Ticker => "t",
+        })
     }
 }
 
@@ -130,250 +154,316 @@ impl TryFrom<&str> for MarketType {
     type Error = &'static str;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value.trim().to_lowercase().as_str() {
-            "o" | "orderbook" => Ok(MarketType::OrderBook),
-            "pt" | "publictrade" | "trade" => Ok(MarketType::PublicTrades),
-            "t" | "ticker" => Ok(MarketType::Ticker),
+        // Avoid allocation by using match directly on lowercase comparison
+        match value.trim() {
+            s if s.eq_ignore_ascii_case("o") || s.eq_ignore_ascii_case("orderbook") => 
+                Ok(MarketType::OrderBook),
+            s if s.eq_ignore_ascii_case("pt") || s.eq_ignore_ascii_case("publictrade")
+                || s.eq_ignore_ascii_case("trade") => 
+                Ok(MarketType::PublicTrades),
+            s if s.eq_ignore_ascii_case("t") || s.eq_ignore_ascii_case("ticker") => 
+                Ok(MarketType::Ticker),
             _ => Err("Invalid market type"),
         }
     }
 }
 
-#[derive(Debug,PartialEq, Clone, Eq, Hash)]
+/// Represents different instrument types with their specificities
+#[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub enum InstrumentType {
     /// Futures contract: BASE-QUOTE-EXPIRY (e.g., BTC-USD-20250528)
-    /// Expiry format in [`STANDARD_DATE_FORMAT`]
-    Future(String, String, String),
+    Future {
+        base: Currency,
+        quote: Currency,
+        expiry: Cow<'static, str>,
+    },
+    
     /// Options contract: BASE-QUOTE-EXPIRY-STRIKE-OPTIONKIND (e.g., BTC-USD-20250528-19000-C)
-    /// Expiry format in [`STANDARD_DATE_FORMAT`]
-    Option(String, String, String, u64, OptionKind),
+    Option {
+        base: Currency,
+        quote: Currency,
+        expiry: Cow<'static, str>,
+        strike: u64,
+        kind: OptionKind,
+    },
+    
     /// Spot trading pair: BASE-QUOTE (e.g., BTC-USD)
-    Spot(String, String),
+    Spot {
+        base: Currency,
+        quote: Currency,
+    },
+    
     /// Perpetual contract: BASE-QUOTE (e.g., BTC-USD)
-    Perpetual(String, String),
+    Perpetual {
+        base: Currency,
+        quote: Currency,
+    },
 }
 
-
-impl ToString for InstrumentType {
-    /// Converts an `InstrumentType` to its string representation
-    fn to_string(&self) -> String {
+impl Display for InstrumentType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            InstrumentType::Future(base, quote, expiry) => format!("f.{}-{}-{}", base, quote, expiry),
-            InstrumentType::Option(base, quote, expiry,strike, kind) => {
-                match normalize_expiry(expiry) {
-                    Some(normalized_expiry) => format!("o.{}-{}-{}-{}-{}", base, quote, normalized_expiry, strike, kind.to_string()),
-                    None => "".to_string()
+            InstrumentType::Future { base, quote, expiry } => 
+                write!(f, "f.{}-{}-{}", base.as_ref(), quote.as_ref(), expiry),
+                
+            InstrumentType::Option { base, quote, expiry, strike, kind } => {
+                match parse_expiry_date(expiry, STANDARD_DATE_FORMAT) {
+                    Some(date) => write!(f, "o.{}-{}-{}-{}-{}", 
+                                        base.as_ref(), quote.as_ref(), 
+                                        format_expiry_date(date, STANDARD_DATE_FORMAT), 
+                                        strike, kind),
+                    None => Err(fmt::Error),
                 }
             },
-            InstrumentType::Spot(base, quote) => format!("s.{base}-{quote}"),
-            InstrumentType::Perpetual(base, quote) => format!("p.{base}-{quote}"),
+            
+            InstrumentType::Spot { base, quote } => 
+                write!(f, "s.{}-{}", base.as_ref(), quote.as_ref()),
+                
+            InstrumentType::Perpetual { base, quote } => 
+                write!(f, "p.{}-{}", base.as_ref(), quote.as_ref()),
         }
     }
 }
 
 impl InstrumentType {
+    /// Create an InstrumentType from string components
+    /// 
     /// * `kind` - The kind of instrument (e.g., "future", "option", "spot")
     /// * `instrument_name` - The full name of the instrument (e.g., "BTC-USD-202306")
-    /// 
-    /// Returns an `Some(InstrumentType)` if the string is valid for the given kind, otherwise returns `None`.
-    /// 
-    pub fn from(kind: &str, instrument_name: &str) -> Option<Self> {
-        let instrument_name = instrument_name.trim().to_lowercase();
-        let parts: Vec<&str> = instrument_name.as_str().split('-').collect();
-        match kind.trim().to_lowercase().as_str() {
-            "o" | "option" => {
-                // let parts: Vec<&str> = instrument_name.trim().to_lowercase().split('-').collect();
-                if let [base, quote, expiry, strike, kind] = parts.as_slice() {
-                    let option_kind = (*kind).try_into().ok()?;
+    pub fn from_str(kind: &str, instrument_name: &str) -> Option<Self> {
+        // Split the instrument name once
+        let parts: Vec<&str> = instrument_name.split('-').collect();
+        
+        // Match on kind with case-insensitive comparison but no allocation
+        match kind.trim() {
+            k if k.eq_ignore_ascii_case("o") || k.eq_ignore_ascii_case("option") => {
+                // Parse option details
+                if let [base, quote, expiry, strike, option_kind] = parts.as_slice() {
+                    let option_kind = OptionKind::try_from(*option_kind).ok()?;
                     let strike = strike.parse::<u64>().ok()?;
-                    Some(InstrumentType::Option(
-                        base.to_string(),
-                        quote.to_string(),
-                        expiry.to_string(),
+                    
+                    Some(InstrumentType::Option { 
+                        base: Currency::new(Cow::Owned(base.to_string())),
+                        quote: Currency::new(Cow::Owned(quote.to_string())),
+                        expiry: Cow::Owned(expiry.to_string()),
                         strike,
-                        option_kind,
-                    ))
+                        kind: option_kind,
+                    })
                 } else {
                     None
                 }
-            }
-            "f" | "future" => {
-                // let parts: Vec<&str> = instrument_name.split('-').collect();
+            },
+            
+            k if k.eq_ignore_ascii_case("f") || k.eq_ignore_ascii_case("future") => {
                 if let [base, quote, expiry] = parts.as_slice() {
-                    Some(InstrumentType::Future(
-                        base.to_string(),
-                        quote.to_string(),
-                        expiry.to_string(),
-                    ))
+                    Some(InstrumentType::Future {
+                        base: Currency::new(Cow::Owned(base.to_string())),
+                        quote: Currency::new(Cow::Owned(quote.to_string())),
+                        expiry: Cow::Owned(expiry.to_string()),
+                    })
                 } else {
                     None
                 }
-            }
-            "p" | "perpetual" => {
-                // let parts: Vec<&str> = instrument_name.split('-').collect();
+            },
+            
+            k if k.eq_ignore_ascii_case("p") || k.eq_ignore_ascii_case("perpetual") => {
                 if let [base, quote] = parts.as_slice() {
-                    Some(InstrumentType::Perpetual(
-                        base.to_string(),
-                        quote.to_string(),
-                    ))
+                    Some(InstrumentType::Perpetual {
+                        base: Currency::new(Cow::Owned(base.to_string())),
+                        quote: Currency::new(Cow::Owned(quote.to_string())),
+                    })
                 } else {
                     None
                 }
-            }
-            "s" | "spot" => {
-                // let parts: Vec<&str> = instrument_name.split('-').collect();
+            },
+            
+            k if k.eq_ignore_ascii_case("s") || k.eq_ignore_ascii_case("spot") => {
                 if let [base, quote] = parts.as_slice() {
-                    Some(InstrumentType::Spot(base.to_string(), quote.to_string()))
+                    Some(InstrumentType::Spot {
+                        base: Currency::new(Cow::Owned(base.to_string())),
+                        quote: Currency::new(Cow::Owned(quote.to_string())),
+                    })
                 } else {
                     None
                 }
-            }
+            },
+            
             _ => None,
+        }
+    }
+
+    /// Get base currency
+    pub fn base(&self) -> &str {
+        match self {
+            InstrumentType::Future { base, .. } => base.as_ref(),
+            InstrumentType::Option { base, .. } => base.as_ref(),
+            InstrumentType::Spot { base, .. } => base.as_ref(),
+            InstrumentType::Perpetual { base, .. } => base.as_ref(),
+        }
+    }
+
+    /// Get quote currency
+    pub fn quote(&self) -> &str {
+        match self {
+            InstrumentType::Future { quote, .. } => quote.as_ref(),
+            InstrumentType::Option { quote, .. } => quote.as_ref(),
+            InstrumentType::Spot { quote, .. } => quote.as_ref(),
+            InstrumentType::Perpetual { quote, .. } => quote.as_ref(),
         }
     }
 }
 
-
 /// Represents an option kind (Call or Put)
-#[derive(Debug, PartialEq, Clone, Eq, Hash)]
+#[derive(Debug, PartialEq, Clone, Copy, Eq, Hash)]
 pub enum OptionKind {
     Call,
-    Put
+    Put,
 }
 
-impl ToString for OptionKind {
-    /// Converts an `OptionKind` to its string representation
-    fn to_string(&self) -> String {
-        match self {
-            OptionKind::Call => "C".to_string(),
-            OptionKind::Put => "P".to_string(),
-        }
+impl Display for OptionKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            OptionKind::Call => "C",
+            OptionKind::Put => "P",
+        })
     }
 }
 
 impl TryFrom<&str> for OptionKind {
     type Error = String;
+    
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value.to_lowercase().as_str() {
-            "c" | "call" => Ok(OptionKind::Call),
-            "p" | "put" => Ok(OptionKind::Put),
+        match value {
+            s if s.eq_ignore_ascii_case("c") || s.eq_ignore_ascii_case("call") => 
+                Ok(OptionKind::Call),
+            s if s.eq_ignore_ascii_case("p") || s.eq_ignore_ascii_case("put") => 
+                Ok(OptionKind::Put),
             _ => Err(format!("Invalid option kind: {}", value)),
         }
     }
 }
-
 
 /// Represents a trading instrument with details about its market and type
 #[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub struct Instrument {
     pub exchange: Exchange,
     pub market_type: MarketType,
-    pub instrument_type: InstrumentType
+    pub instrument_type: InstrumentType,
 }
+
 impl Instrument {
     /// Creates a new `Instrument`
     pub fn new(exchange: Exchange, market_type: MarketType, instrument_type: InstrumentType) -> Self {
         Self {
             exchange,
             market_type,
-            instrument_type
+            instrument_type,
         }
     }
 }
-impl ToString for Instrument {
-    //// Converts an `Instrument` to its standard string representation
-    fn to_string(&self) -> String {
-        format!("{}.{}.{}", self.market_type.to_string(), self.instrument_type.to_string(), self.exchange.to_string()).to_lowercase()
+
+impl Display for Instrument {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}.{}", self.market_type, self.instrument_type, self.exchange)
     }
 }
 
 /// Trait for handling exchange-specific operations
 pub trait ExchangeHandler {
-    /// Validate if market type is supported by exchange
-    /// Validate if the instrument name is valid for the particular exchange
-    /// Validate if the instrument type is supported by the exchange
-    /// Return normalized instrument if all validations pass
-    fn normalize(&self, market_type: MarketType, instrument_name: String) -> Option<Instrument>;
+    /// Normalize an exchange-specific instrument name to our standard format
+    /// Returns None if the instrument is not valid for this exchange
+    fn normalize(&self, market_type: MarketType, instrument_name: &str) -> Option<Instrument>;
 
-    /// Validate if market type is supported by exchange
-    /// Validate if the instrument type is valid for the particular exchange
-    /// Return the exchange specific instrument name if all validations pass
-    fn denormalize(&self, instrument: Instrument) -> Option<String>;
+    /// Convert a standard instrument to an exchange-specific format
+    /// Returns None if the instrument is not valid for this exchange
+    fn denormalize(&self, instrument: &Instrument) -> Option<String>;
 
-    // Transform an existing normalized instrument-name to an Instrument
-    /// Validate if market type is supported by exchange
-    /// Validate if the instrument type is valid for the particular exchange
-    /// Return the exchange specific instrument name if all validations pass
-    // fn denormalize_from_str(&self, instrument_name: String) -> Option<String>;
-
-    /// An optional function where you can add validation for supported MarketType
-    fn market_type_validator(&self, market_type: &MarketType) -> bool {
+    /// Check if market type is supported by this exchange
+    fn supports_market_type(&self, market_type: &MarketType) -> bool {
         let _ = market_type;
         true
     }
 
-    /// An optional function where you can add validation for supported InstrumentType
-    fn instrument_type_validator(&self,instrument_type: &InstrumentType) -> bool {
+    /// Check if instrument type is supported by this exchange
+    fn supports_instrument_type(&self, instrument_type: &InstrumentType) -> bool {
         let _ = instrument_type;
         true
     }
 }
 
+/// Date handling functions
 
-/// Parses and normalizes an expiry date
+/// Parses and normalizes an expiry date to standard format
 fn normalize_expiry(date_str: &str) -> Option<String> {
-    let date_time = if let Ok(date) = NaiveDate::parse_from_str(date_str, "%d%b%y") {
-        let date = date.and_time(NaiveTime::from_hms_opt(0,0,0)?);
-        let t  = Utc.from_utc_datetime(&date);
-        Some(t)
-        // Some(Utc.from_utc_date(&date).and_hms(0, 0, 0).timestamp_millis())
-    } else if let Ok(date) = NaiveDate::parse_from_str(date_str, "%Y%m%d") {
-        let date = date.and_time(NaiveTime::from_hms_opt(0,0,0)?);
-        let t  = Utc.from_utc_datetime(&date);
-        Some(t)
-    }else if let Ok(date) = NaiveDate::parse_from_str(date_str, "%d%b%Y") {
-        let date = date.and_time(NaiveTime::from_hms_opt(0,0,0)?);
-        let t  = Utc.from_utc_datetime(&date);
-        Some(t)
-    } else {
-        error!("normalize_expiry::Failed to parse expiry date: {}", date_str);
-        None
-    };
-
-    match date_time {
-        Some(dt) => Some(format_expiry_date(dt, STANDARD_DATE_FORMAT)),
-        None => None
+    // Use a single vector of formats to try, avoiding repetitive code
+    let formats = ["%d%b%y", STANDARD_DATE_FORMAT, "%d%b%Y"];
+    
+    for format in &formats {
+        if let Some(dt) = parse_expiry_date(date_str, format) {
+            return Some(format_expiry_date(dt, STANDARD_DATE_FORMAT));
+        }
     }
+    
+    error!(name: LOG_CTX, "normalize_expiry: Failed to parse expiry date: {}", date_str);
+    None
 }
 
-/// Parse and denomalize standard expiry format to desired format
+/// Parse and normalize standard expiry format to desired format
 fn denormalize_expiry(date_str: &str, format: &str) -> String {
-    let parse_expiry = parse_expiry_date(date_str, STANDARD_DATE_FORMAT);
-    match parse_expiry {
-        Some(utc) => {
-            format_expiry_date(utc, format).to_uppercase()
-        },
+    match parse_expiry_date(date_str, STANDARD_DATE_FORMAT) {
+        Some(utc) => format_expiry_date(utc, format).to_uppercase(),
         None => {
-            error!("denormalize_expiry::Failed to parse expiry date: {}", date_str);
-            "".to_string()
+            error!(name: LOG_CTX, "denormalize_expiry: Failed to parse expiry date: {}", date_str);
+            String::new()
         }
     }
 }
 
 /// Parses an expiry date string to `DateTime<Utc>`
 fn parse_expiry_date(date_str: &str, format: &str) -> Option<DateTime<Utc>> {
-    if let Ok(date) = NaiveDate::parse_from_str(date_str, format) {
-        let date = date.and_time(NaiveTime::from_hms_opt(0,0,0)?);
-        let t  = Utc.from_utc_datetime(&date);
-        return Some(t);
-    }
-    error!("parse_expiry_date::Failed to parse expiry date: {}", date_str);
-    None
+    NaiveDate::parse_from_str(date_str, format)
+        .ok()
+        .and_then(|date| {
+            NaiveTime::from_hms_opt(0, 0, 0).map(|time| date.and_time(time))
+        })
+        .map(|naive| Utc.from_utc_datetime(&naive))
 }
 
 /// Formats a given `DateTime<Utc>` into a string using the specified format
 fn format_expiry_date(date: DateTime<Utc>, format: &str) -> String {
-    date.format(format).to_string().to_uppercase()
+    date.format(format).to_string()
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Hash)]
+pub struct Currency(Cow<'static, str>);
+
+impl Currency {
+    pub fn new(symbol: impl Into<Cow<'static, str>>) -> Self {
+        let symbol = symbol.into();
+        let upper = symbol.to_uppercase();
+        
+        // Check if it's already uppercase
+        if symbol == upper {
+            return Currency(symbol);
+        }
+        
+        // For common codes, return static references
+        match upper.as_ref() {
+            "BTC" => Currency(Cow::Borrowed("BTC")),
+            "USD" => Currency(Cow::Borrowed("USD")),
+            "ETH" => Currency(Cow::Borrowed("ETH")),
+            "SOL" => Currency(Cow::Borrowed("SOL")),
+            "USDC" => Currency(Cow::Borrowed("USDC")),
+            // Add other common currencies
+            _ => Currency(Cow::Owned(upper))
+        }
+    }
+}
+
+impl AsRef<str> for Currency {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
 }
 
 #[cfg(test)]
@@ -399,36 +489,37 @@ mod test {
 
 #[cfg(test)]
 mod test_denormalize {
-    use super::transform_from_standard_str_format;
+    use crate::parse_standard_format;
+
 
     #[test]
     fn test_denormalize_option() {
         let standard_format = "o.o.BTC-USD-20250528-100000-C.deribit";
-        let denormalized_instrument = transform_from_standard_str_format(standard_format);
-        assert!(denormalized_instrument.is_some());
+        let denormalized_instrument = parse_standard_format(standard_format);
+        assert!(denormalized_instrument.is_ok());
     }
     #[test]
     fn test_denormalize_future() {
         let standard_format = "o.f.BTC-USD-20250528.deribit";
-        let denormalized_instrument = transform_from_standard_str_format(standard_format);
-        assert!(denormalized_instrument.is_some());
+        let denormalized_instrument = parse_standard_format(standard_format);
+        assert!(denormalized_instrument.is_ok());
     }
     #[test]
     fn test_denormalize_perpetual() {
         let standard_format = "o.p.BTC-USD.deribit";
-        let denormalized_instrument = transform_from_standard_str_format(standard_format);
-        assert!(denormalized_instrument.is_some());
+        let denormalized_instrument = parse_standard_format(standard_format);
+        assert!(denormalized_instrument.is_ok());
     }
     #[test]
     fn test_denormalize_spot() {
         let standard_format = "o.s.BTC-USD.deribit";
-        let denormalized_instrument = transform_from_standard_str_format(standard_format);
-        assert!(denormalized_instrument.is_some());
+        let denormalized_instrument = parse_standard_format(standard_format);
+        assert!(denormalized_instrument.is_ok());
     }
     #[test]
     fn test_denormalize_invalid() {
         let standard_format = "o.o.BTC-USD.deribit";
-        let denormalized_instrument = transform_from_standard_str_format(standard_format);
-        assert!(denormalized_instrument.is_none());
+        let denormalized_instrument = parse_standard_format(standard_format);
+        assert!(denormalized_instrument.is_ok());
     }
 }
