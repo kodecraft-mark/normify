@@ -360,6 +360,21 @@ impl Instrument {
             instrument_type,
         }
     }
+
+    pub fn is_expired(&self) -> bool {
+        match &self.instrument_type {
+            InstrumentType::Option {expiry,..} | InstrumentType::Future {expiry,..} => {
+                match is_date_expired(expiry) {
+                    Ok(expired) => expired,
+                    Err(err) => {
+                        error!(name: LOG_CTX, "{}", err);
+                        false
+                    }
+                }
+            },
+            _ => false
+        }
+    }
 }
 
 impl Display for Instrument {
@@ -432,6 +447,29 @@ fn parse_expiry_date(date_str: &str, format: &str) -> Option<DateTime<Utc>> {
 /// Formats a given `DateTime<Utc>` into a string using the specified format
 fn format_expiry_date(date: DateTime<Utc>, format: &str) -> String {
     date.format(format).to_string()
+}
+
+pub fn is_date_expired(date_str: &str) -> Result<bool, String> {
+    // Parse the input date string
+    let naive_date = match NaiveDate::parse_from_str(date_str, STANDARD_DATE_FORMAT) {
+        Ok(d) => d,
+        Err(err) => return Err(format!("{}", err))
+    };
+    
+    // Create a time at 23:59:59.999 (end of day with millisecond precision)
+    let end_of_day_time = NaiveTime::from_hms_milli_opt(23, 59, 59, 999).unwrap();
+    
+    // Combine date and time
+    let naive_datetime = naive_date.and_time(end_of_day_time);
+    
+    // Convert to DateTime<Utc>
+    let expiration_date = Utc.from_utc_datetime(&naive_datetime);
+    
+    // Get current UTC time
+    let now = Utc::now();
+    
+    // Compare: if now is after expiration date, then the date is expired
+    Ok(now > expiration_date)
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Hash)]
@@ -521,5 +559,23 @@ mod test_denormalize {
         let standard_format = "o.o.BTC-USD.deribit";
         let denormalized_instrument = parse_standard_format(standard_format);
         assert!(denormalized_instrument.is_ok());
+    }
+}
+
+// For testing with different dates
+#[test]
+fn test_multiple_dates() {
+    let now = Utc::now();
+    println!("Current UTC time: {}", now);
+    
+    let dates = vec![
+        "20250319", // Yesterday (if today is 2025-03-20)
+        "20250320", // Today
+        "20250321", // Tomorrow
+    ];
+    println!("Time now: {}", Utc::now());
+    for date in dates {
+        let is_expired = is_date_expired(date).unwrap();
+        println!("Date {} is {}", date, if is_expired { "expired" } else { "not expired" });
     }
 }
