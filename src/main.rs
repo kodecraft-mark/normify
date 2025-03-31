@@ -16,7 +16,7 @@ fn main() {
     println!("{:#?}", ins);
 
     // Case when you have the standard format
-    let standard_format = "t.o.BTC-USD-20250328-90000-C.deribit";
+    let standard_format = "f.o.BTC-USD-20250328-90000-C.deribit";
     let ins = match parse_standard_format(standard_format) {
         Ok(ins) => ins,
         Err(err) => {
@@ -27,7 +27,7 @@ fn main() {
     println!("{:#?}", ins);
 
     //Case when you want to get the exchange specific format
-    let standard_format = "t.o.BTC-USD-20250328-90000-C.deribit";
+    let standard_format = "f.o.BTC-USD-20250328-90000-C.deribit";
     let ins = to_exchange_format(standard_format).unwrap();
     println!("Exchange specific format: {:#?}", ins);
     

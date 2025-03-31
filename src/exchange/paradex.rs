@@ -58,7 +58,7 @@ impl ExchangeHandler for ParadexHandler {
     }
 
     fn supports_market_type(&self, market_type: &MarketType) -> bool {
-        matches!(market_type, MarketType::OrderBook)
+        matches!(market_type, MarketType::OrderBook) || matches!(market_type, MarketType::Funding)
     }
 
     fn supports_instrument_type(&self, instrument_type: &InstrumentType) -> bool {

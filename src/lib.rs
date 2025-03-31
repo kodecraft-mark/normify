@@ -138,6 +138,7 @@ pub enum MarketType {
     OrderBook,
     PublicTrades,
     Ticker,
+    Funding,
 }
 
 impl Display for MarketType {
@@ -146,6 +147,7 @@ impl Display for MarketType {
             MarketType::OrderBook => "o",
             MarketType::PublicTrades => "pt",
             MarketType::Ticker => "t",
+            MarketType::Funding => "f",
         })
     }
 }
@@ -163,6 +165,8 @@ impl TryFrom<&str> for MarketType {
                 Ok(MarketType::PublicTrades),
             s if s.eq_ignore_ascii_case("t") || s.eq_ignore_ascii_case("ticker") => 
                 Ok(MarketType::Ticker),
+            s if s.eq_ignore_ascii_case("f") || s.eq_ignore_ascii_case("funding") => 
+                Ok(MarketType::Funding),
             _ => Err("Invalid market type"),
         }
     }
