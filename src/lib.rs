@@ -136,7 +136,7 @@ impl Exchange {
 #[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub enum MarketType {
     OrderBook,
-    PublicTrades,
+    PublicTrade,
     Ticker,
     Funding,
 }
@@ -145,7 +145,7 @@ impl Display for MarketType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             MarketType::OrderBook => "o",
-            MarketType::PublicTrades => "pt",
+            MarketType::PublicTrade => "p",
             MarketType::Ticker => "t",
             MarketType::Funding => "f",
         })
@@ -160,9 +160,9 @@ impl TryFrom<&str> for MarketType {
         match value.trim() {
             s if s.eq_ignore_ascii_case("o") || s.eq_ignore_ascii_case("orderbook") => 
                 Ok(MarketType::OrderBook),
-            s if s.eq_ignore_ascii_case("pt") || s.eq_ignore_ascii_case("publictrade")
+            s if s.eq_ignore_ascii_case("p") || s.eq_ignore_ascii_case("publictrade")
                 || s.eq_ignore_ascii_case("trade") => 
-                Ok(MarketType::PublicTrades),
+                Ok(MarketType::PublicTrade),
             s if s.eq_ignore_ascii_case("t") || s.eq_ignore_ascii_case("ticker") => 
                 Ok(MarketType::Ticker),
             s if s.eq_ignore_ascii_case("f") || s.eq_ignore_ascii_case("funding") => 
