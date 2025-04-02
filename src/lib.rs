@@ -91,6 +91,7 @@ pub enum Exchange {
     Dydx,
     Derive,
     Paradex,
+    Aevo
 }
 
 impl Display for Exchange {
@@ -100,6 +101,7 @@ impl Display for Exchange {
             Exchange::Dydx => "dydx",
             Exchange::Derive => "derive",
             Exchange::Paradex => "paradex",
+            Exchange::Aevo => "aevo",
         })
     }
 }
@@ -114,6 +116,7 @@ impl TryFrom<&str> for Exchange {
             s if s.eq_ignore_ascii_case("dydx") => Ok(Exchange::Dydx),
             s if s.eq_ignore_ascii_case("derive") => Ok(Exchange::Derive),
             s if s.eq_ignore_ascii_case("paradex") => Ok(Exchange::Paradex),
+            s if s.eq_ignore_ascii_case("aevo") => Ok(Exchange::Aevo),
             _ => Err(format!("Invalid exchange name: {}", value)),
         }
     }
@@ -128,6 +131,7 @@ impl Exchange {
             Exchange::Dydx => &exchange::dydx::DYDX_HANDLER,
             Exchange::Derive => &exchange::derive::DERIVE_HANDLER,
             Exchange::Paradex => &exchange::paradex::PARADEX_HANDLER,
+            Exchange::Aevo => &exchange::aevo::AEVO_HANDLER,
         }
     }
 }
